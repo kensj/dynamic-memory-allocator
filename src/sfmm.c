@@ -2,7 +2,7 @@
 #include <math.h>
 #include <unistd.h>
 
-sf_free_header* freelist_head
+sf_free_header* freelist_head;
 bool initialized = false;
 
 
