@@ -67,6 +67,11 @@ void *Malloc(size_t size) {
 		Mem_init();
 	}
 	info("%s: %zu", "Requested size", size);
+	if(size%16 != 0) {
+		warn("%s", "Not Quad Word Aligned, Aligning...");
+		size = QUAD_ALIGN(size);
+		info("%s: %zu", "New Free Node Size", size);
+	}
 
 	return NULL;
 }
