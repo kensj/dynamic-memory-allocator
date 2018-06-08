@@ -13,6 +13,7 @@
 #define SPLINTER_CONSUMED_BITS 2
 #define ALLOC_SIZE_BITS 2
 
+#define PAGE_SIZE 4096
 
 #define SF_HEADER_SIZE \
     ((ALLOC_SIZE_BITS + BLOCK_SIZE_BITS + UNUSED_SIZE_BITS + \
@@ -51,8 +52,13 @@ typedef struct sf_footer sf_footer;
 
 extern sf_free_header *freelist_head;
 
+void Mem_init();
+void Mem_fini();
+
 void *Malloc(size_t size);
 void *Realloc(void *ptr, size_t size);
 void Free(void *ptr);
+
+void setFreeNode(sf_free_header* node, size_t size);
 
 #endif

@@ -7,5 +7,6 @@
 #define MAX_HEAP_SIZE (20 * (1 << 20))
 
 int main(int argc, char *argv[]) {
+    Mem_init();
     return EXIT_SUCCESS;
 }
