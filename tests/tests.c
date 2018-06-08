@@ -16,3 +16,4 @@ Test(sf_memsuite, Init_free_list, .init = Mem_init, .fini = Mem_fini) {
   cr_assert(footer->block_size == head->header.block_size, "Block sizes do not match!");
   cr_assert(((sf_footer*)((char*)head + PAGE_SIZE - SF_FOOTER_SIZE)) == footer, "Footer location incorrect!");
 }
+

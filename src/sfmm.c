@@ -37,11 +37,22 @@ void Mem_init() {
 	info("%s: %p", "Heap end", heap_end);
 
 	// We will set the freelist head to the entire empty page
+	debug("%s", "Setting freelist_head...");
 	freelist_head = heap_start;
 	freelist_head->next = NULL;
 	freelist_head->prev = NULL;
-	// This function will be reuseable, so we leave the head-related code right before the call
-	setFreeNode(freelist_head, size);
+	
+	freelist_head->header.alloc = false;
+	freelist_head->header.block_size = size >> 4;
+
+	sf_footer* freelist_foot = GET_FREE_FOOT(freelist_head);
+
+	freelist_foot->alloc = freelist_head->header.alloc;
+	freelist_foot->block_size = freelist_head->header.block_size;
+
+	info("%s: %p", "Freelist Head address", freelist_head);
+	info("%s: %p", "Foot address", freelist_foot);
+	info("%s: %d", "Block Size", freelist_head->header.block_size << 4);
 	
 	initialized = true;
 }
@@ -73,11 +84,11 @@ void Mem_fini() {
 }
 
 void setFreeNode(sf_free_header* node, size_t size) {
-	debug("%s", "Setting Free Node...");
+/*	debug("%s", "Setting Free Node...");
 	info("%s: %zu", "Free Node Size", size);
 
 	node->header.alloc = false;
-	node->header.block_size = size >> 4;
+	//node->header.block_size = size >> 4;
 	// We don't need to change these values for the freelist
 	//node->header.requested_size = 0;
 	//node->header.splinter_size = 0;
@@ -87,16 +98,16 @@ void setFreeNode(sf_free_header* node, size_t size) {
 	sf_footer* node_foot = GET_FREE_FOOT(node);
 	
 	node_foot->alloc = node->header.alloc;
-	node_foot->block_size = node->header.block_size;
+	//node_foot->block_size = node->header.block_size;
 	// We don't need to change these values for the freelist
 	//node_foot->alloc = node->header.alloc;
 	//node_foot->splinter = node->header.splinter;
 
 	info("%s: %p", "Node address", node);
 	info("%s: %p", "Foot address", node_foot);
-	info("%s: %d", "Block Size", node->header.block_size << 4);
+	//info("%s: %d", "Block Size", node->header.block_size << 4);
 	// We don't need to change these values for the freelist
 	//info("%s: %d", "Splinter", node->header.splinter);
 	//info("%s: %d", "Splinter Size", node->header.splinter_size);
-	//info("%s: %d", "Padding Size", node->header.padding_size);
+	//info("%s: %d", "Padding Size", node->header.padding_size);*/
 }
