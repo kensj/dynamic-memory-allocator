@@ -59,6 +59,9 @@ void *Malloc(size_t size);
 void *Realloc(void *ptr, size_t size);
 void Free(void *ptr);
 
-void setFreeNode(sf_free_header* node, size_t size);
+sf_free_header* searchFreeList(size_t size);
+void addNewPage();
+bool blockValid(sf_header* head, sf_footer* foot);
+void coalesceBack(sf_header* node);
 
 #endif

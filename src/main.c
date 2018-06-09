@@ -8,6 +8,6 @@
 
 int main(int argc, char *argv[]) {
     Mem_init();
-    Malloc(10);
+    Malloc(5000);
     return EXIT_SUCCESS;
 }

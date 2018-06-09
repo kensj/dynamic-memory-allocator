@@ -2,10 +2,13 @@
 #include <math.h>
 #include <unistd.h>
 
-#define GET_FREE_HEAD(foot)	((sf_free_header*)((char*)foot - (foot->block_size << 4) + SF_FOOTER_SIZE))
-#define GET_FREE_FOOT(node)	((sf_footer*)((char*)node + (node->header.block_size << 4) - SF_FOOTER_SIZE))
+#define GET_HEAD(foot)				((sf_header*)((char*)((sf_footer*)foot) - (((sf_footer*)foot)->block_size << 4) + SF_FOOTER_SIZE))
+#define GET_FOOT(head)				((sf_footer*)((char*)((sf_header*)head) + (((sf_header*)head)->block_size << 4) - SF_FOOTER_SIZE))
+#define PREV_BLOCK(node)			((sf_header*)((char*)((sf_footer*)((char*)node - SF_FOOTER_SIZE)) - (((sf_footer*)((char*)node - SF_FOOTER_SIZE))->block_size << 4) + SF_FOOTER_SIZE))
 
-#define QUAD_ALIGN(size) 	(size - size%16 + 16)
+#define AVAILABLE_SIZE(node, size)	((node->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size)
+
+#define ALIGN(size) 	(size - size%16 + 16)
 
 sf_free_header* freelist_head;
 bool initialized = false;
@@ -15,24 +18,16 @@ void Mem_init() {
 		warn("%s", "Already initialized, doing nothing");
 		return;
 	}
-	debug("%s","Initializing memory for first time...");
+	debug("%s","Initializing memory...");
 	// Ask for a new page of memory (default: 4096 bytes)
-	// If not Quad-Word aligned, then align
-	// This case should NOT happen, unless you set the PAGE_SIZE to a non-quad word alignment
-	size_t size = PAGE_SIZE;
-	if(size%16 != 0) {
-		warn("%s", "Not Quad Word Aligned, Aligning...");
-		size = QUAD_ALIGN(size);
-		info("%s: %zu", "New Free Node Size", size);
-	}
 
-	void *heap_start = sbrk(size);
+	void *heap_start = sbrk(PAGE_SIZE);
 	if(heap_start == (void *) -1) {
 		error("%s", "Could not initialize memory");
 		return;
 	}
 	// The heap_end matches the return pointer if we call sbrk(0)
-	void *heap_end = (heap_start + size);
+	void *heap_end = (heap_start + PAGE_SIZE);
 	info("%s: %p", "Heap start", heap_start);
 	info("%s: %p", "Heap end", heap_end);
 
@@ -43,17 +38,19 @@ void Mem_init() {
 	freelist_head->prev = NULL;
 	
 	freelist_head->header.alloc = false;
-	freelist_head->header.block_size = size >> 4;
+	freelist_head->header.splinter = false;
+	freelist_head->header.block_size = PAGE_SIZE >> 4;
 
-	sf_footer* freelist_foot = GET_FREE_FOOT(freelist_head);
+	sf_footer* freelist_foot = GET_FOOT(freelist_head);
 
 	freelist_foot->alloc = freelist_head->header.alloc;
+	freelist_foot->splinter = freelist_head->header.splinter;
 	freelist_foot->block_size = freelist_head->header.block_size;
 
 	info("%s: %p", "Freelist Head address", freelist_head);
 	info("%s: %p", "Foot address", freelist_foot);
 	info("%s: %d", "Block Size", freelist_head->header.block_size << 4);
-	
+
 	initialized = true;
 }
 
@@ -69,9 +66,11 @@ void *Malloc(size_t size) {
 	info("%s: %zu", "Requested size", size);
 	if(size%16 != 0) {
 		warn("%s", "Not Quad Word Aligned, Aligning...");
-		size = QUAD_ALIGN(size);
+		size = ALIGN(size);
 		info("%s: %zu", "New Free Node Size", size);
 	}
+
+	searchFreeList(size);
 
 	return NULL;
 }
@@ -88,31 +87,129 @@ void Mem_fini() {
 	
 }
 
-void setFreeNode(sf_free_header* node, size_t size) {
-/*	debug("%s", "Setting Free Node...");
-	info("%s: %zu", "Free Node Size", size);
+/* Search the free list
+ * If there is only 1 node, it will check the size
+ * If the size is not enough, it will add a new page and coalesce the new page
+ * It will continue to do so until there is enough space
+ */
+sf_free_header* searchFreeList(size_t size) {
+	// If there is only 1 node in the FreeList
+	if(freelist_head->next == NULL) {
+		debug("%s", "Freelist only has 1 node");
+		int size_diff = AVAILABLE_SIZE(freelist_head, size);	
+		info("%s: %d", "Size difference", size_diff);
+		if(size_diff < 0) {
+			warn("%s", "Not enough space on current page, allocating new space");
+			addNewPage();
+			// Search again, recursively add pages until there is enough space
+			// return searchFreeList(size_t size);
+		}
+	}
+	else {
+		/*sf_free_header* best = NULL;
+		sf_free_header* search = freelist_head;
+		while(search != NULL) {
+			// Gets size difference between the requested size and the best fit so far, the next fit
+			int current_size_diff = (best->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size;
+			int next_size_diff = (search->next->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size;
+			// If the next fit is better, change that to best fit
+			if(next_size_diff < current_size_diff && next_size_diff > 0) best = best->next;
+			search = search->next;
+		}
+		return best;*/
+	}
+	return freelist_head;
+}
 
-	node->header.alloc = false;
-	//node->header.block_size = size >> 4;
-	// We don't need to change these values for the freelist
-	//node->header.requested_size = 0;
-	//node->header.splinter_size = 0;
-	//node->header.padding_size = 0;
-	//node->header.splinter = false;
+void addNewPage() {
+	// Add a new page
+	void* new_page_start = sbrk(PAGE_SIZE);
+	info("%s: %p", "New Page Pointer", new_page_start);
 
-	sf_footer* node_foot = GET_FREE_FOOT(node);
+	// Insert new freelist node at head for O(1) efficiency
+	debug("%s", "Setting new freelist node...");
+	sf_free_header* new = new_page_start;
+	freelist_head->prev = new;
+	new->next = freelist_head;
 	
-	node_foot->alloc = node->header.alloc;
-	//node_foot->block_size = node->header.block_size;
-	// We don't need to change these values for the freelist
-	//node_foot->alloc = node->header.alloc;
-	//node_foot->splinter = node->header.splinter;
+	new->header.alloc = false;
+	new->header.splinter = false;
+	new->header.block_size = PAGE_SIZE >> 4;
 
-	info("%s: %p", "Node address", node);
-	info("%s: %p", "Foot address", node_foot);
-	//info("%s: %d", "Block Size", node->header.block_size << 4);
-	// We don't need to change these values for the freelist
-	//info("%s: %d", "Splinter", node->header.splinter);
-	//info("%s: %d", "Splinter Size", node->header.splinter_size);
-	//info("%s: %d", "Padding Size", node->header.padding_size);*/
+	sf_footer* new_foot = GET_FOOT(new);
+
+	new_foot->alloc = new->header.alloc;
+	new_foot->splinter = new->header.splinter;
+	new_foot->block_size = new->header.block_size;
+
+	info("%s: %p", "Freelist Node New Page Address", new);
+	info("%s: %p", "Freelist Node New Page Foot Address", new_foot);
+	info("%s: %d", "Block Size", new->header.block_size << 4);
+
+	freelist_head = new;
+
+	// Coalesce with memory directly behind new block
+	coalesceBack(new_page_start);
+}
+
+bool blockValid(sf_header* head, sf_footer* foot) {
+	if((head->alloc == foot->alloc) && (head->block_size == foot->block_size) && (head->splinter == foot->splinter)) {
+		success("%s", "Block is valid");
+		return true;
+	}
+	warn("%s", "Invalid block detected");
+	return false;
+}
+
+void coalesceBack(sf_header* node) {
+	// Get the block header and footer that is directly behind in the memory
+	sf_header* possible_free_head = PREV_BLOCK(node);
+	sf_footer* possible_free_foot = GET_FOOT(possible_free_head);
+	info("%s: %p", "Possible Free Head", possible_free_head);
+	info("%s: %p", "Possible Free Foot", possible_free_foot);
+	// If block is invalid, something is wrong elsewhere
+	if(!blockValid(possible_free_head, possible_free_foot)) {
+		error("%s", "Invalid block, aborting");
+		return;
+	}
+	// If block is not free, do nothing
+	if(possible_free_head->alloc) {
+		debug("%s", "Block is allocated, no coalesce required");
+		return;
+	}
+	// Coalescing here
+	debug("%s", "Coalescing...");
+	sf_free_header* new_free_head = (sf_free_header*)possible_free_head;
+	sf_footer* new_free_foot = GET_FOOT(node);
+	info("%s: %p", "Coalesced Free Header: ", new_free_head);
+	info("%s: %p", "Coalesced Free Footer: ", new_free_foot);
+	new_free_head->header.block_size += node->block_size;
+	new_free_foot->block_size = new_free_head->header.block_size;
+
+	// Cleanup next and prev pointers
+	debug("%s", "Cleaning up pointers...");
+	sf_free_header* start = freelist_head;
+	while(start != NULL) {
+		// If next address equals the block we just removed, set it to the new one
+		if(start->next == (sf_free_header*)node) {
+			start->next = new_free_head;
+			// If next address is the same, we can safely NULL
+			if(start == start->next) {
+				info("%s", "Next pointer same as current pointer, setting next to null");
+				start->next = NULL;
+			}
+		}
+		// If prev address equals the block we just removed, set it to the new one
+		if(start->prev == (sf_free_header*)node) {
+			start->prev = new_free_head;
+			// If next address is the same, we can safely NULL
+			// This also means that this address is the new head
+			if(start == start->prev) {
+				info("%s", "Prev pointer same as current pointer, setting prev to null and current to freelist head");
+				start->prev = NULL;
+				freelist_head = start;
+			}
+		}
+		start = start->next;
+	}
 }
