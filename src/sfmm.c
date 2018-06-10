@@ -93,32 +93,34 @@ void Mem_fini() {
  * It will continue to do so until there is enough space
  */
 sf_free_header* searchFreeList(size_t size) {
-	// If there is only 1 node in the FreeList
-	if(freelist_head->next == NULL) {
-		debug("%s", "Freelist only has 1 node");
-		int size_diff = AVAILABLE_SIZE(freelist_head, size);	
-		info("%s: %d", "Size difference", size_diff);
-		if(size_diff < 0) {
-			warn("%s", "Not enough space on current page, allocating new space");
-			addNewPage();
-			// Search again, recursively add pages until there is enough space
-			// return searchFreeList(size_t size);
+	sf_free_header* search = freelist_head;
+	sf_free_header* best_fit = NULL;
+	int best_size = -1;
+	while(search != NULL) {
+		int available_size = AVAILABLE_SIZE(search, size);
+		// If block is large enough and we don't get a best fit yet, add it
+		if(available_size > 0 && best_fit == NULL) {
+			info("%s", "best_fit is NULL but found a fit");
+			info("%s: %d", "Available size", available_size);
+			best_fit = search;
+			best_size = available_size;
 		}
-	}
-	else {
-		/*sf_free_header* best = NULL;
-		sf_free_header* search = freelist_head;
-		while(search != NULL) {
-			// Gets size difference between the requested size and the best fit so far, the next fit
-			int current_size_diff = (best->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size;
-			int next_size_diff = (search->next->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size;
-			// If the next fit is better, change that to best fit
-			if(next_size_diff < current_size_diff && next_size_diff > 0) best = best->next;
-			search = search->next;
+		// If block is better fit than our already fitted block, replace
+		else if(available_size > 0 && available_size < best_size) {
+			info("%s", "best_fit already exists but found a better fit");
+			info("%s: %d", "Available size", available_size);
+			best_fit = search;
+			best_size = available_size;
 		}
-		return best;*/
+		search = search->next;
 	}
-	return freelist_head;
+	// Fit doesn't exist, recursively add a page and try again
+	if(best_fit == NULL)  {
+		addNewPage();
+		return searchFreeList(size);
+	}
+	success("%s: %d", "Best fit found of size", best_fit->header.block_size << 4);
+	return best_fit;
 }
 
 void addNewPage() {
@@ -185,6 +187,8 @@ void coalesceBack(sf_header* node) {
 	info("%s: %p", "Coalesced Free Footer: ", new_free_foot);
 	new_free_head->header.block_size += node->block_size;
 	new_free_foot->block_size = new_free_head->header.block_size;
+	info("%s: %d", "Header Block Size: ", new_free_head->header.block_size << 4);
+	info("%s: %d", "Footer Block Size: ", new_free_foot->block_size << 4);
 
 	// Cleanup next and prev pointers
 	debug("%s", "Cleaning up pointers...");
