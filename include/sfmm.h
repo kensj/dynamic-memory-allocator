@@ -63,5 +63,6 @@ sf_free_header* searchFreeList(size_t size);
 void addNewPage();
 bool blockValid(sf_header* head, sf_footer* foot);
 void coalesceBack(sf_header* node);
+sf_free_header* hasFit(size_t size);
 
 #endif

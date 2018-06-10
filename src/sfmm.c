@@ -74,6 +74,57 @@ void *Malloc(size_t size) {
 	sf_free_header* best_fit_head = searchFreeList(size);
 	sf_footer* best_fit_foot = GET_FOOT(best_fit_head);
 
+	// If block size is equal, we don't have to split
+	if(AVAILABLE_SIZE(best_fit_head, size) == 0) {
+		debug("%s", "Block Size is equal to adjusted requested size, split not required");
+
+		// ----------------------------
+
+		// If there is no previous pointer, nor next pointer, freelist_head is not null
+		if(best_fit_head->prev == NULL && best_fit_head->next == NULL) {
+			warn("%s", "Freelist now empty");
+			freelist_head = NULL;
+		}
+		// If there is a previous pointer but no next pointer
+		else if(best_fit_head->prev != NULL && best_fit_head->next == NULL) {
+			debug("%s", "Previous pointer is not NULL, setting its next to NULL");
+			best_fit_head->prev->next = NULL;
+		}
+		// If there is no previous pointer but there is a next pointer
+		else if(best_fit_head->prev == NULL && best_fit_head->next != NULL) {
+			debug("%s", "Previous pointer is NULL, setting next pointer to HEAD");
+			best_fit_head->next->prev = NULL;
+			freelist_head = best_fit_head->next;
+		}
+		// Both prev and next not NULL
+		else  {
+			best_fit_head->next->prev = best_fit_head->prev;
+			best_fit_head->prev->next = best_fit_head->next;
+		}
+		
+		best_fit_head->next = NULL;
+		best_fit_head->prev = NULL;
+
+		sf_header* new_block_head = (sf_header*)best_fit_head;
+
+		new_block_head->requested_size = requested_size >> 4;
+		new_block_head->padding_size = (size - requested_size) >> 4;
+		new_block_head->alloc = true;
+		new_block_head->splinter = false;
+		new_block_head->splinter_size = 0;
+
+		sf_footer* new_block_foot = best_fit_foot;
+		new_block_foot->alloc = new_block_head->alloc;
+		new_block_foot->block_size = new_block_head->block_size;
+		new_block_foot->splinter = new_block_head->splinter;
+		
+		void* payload = new_block_head + SF_HEADER_SIZE;
+		return payload;
+	}
+	// CHECK FOR SPLINTER HERE
+
+	//-------------------------
+
 	debug("%s", "---------------------------------------");
 	debug("%s", "Malloc Block info");
 	debug("%s", "---------------------------------------");
@@ -140,32 +191,11 @@ void Mem_fini() {
  * It will continue to do so until there is enough space
  */
 sf_free_header* searchFreeList(size_t size) {
-	sf_free_header* search = freelist_head;
-	sf_free_header* best_fit = NULL;
-	int best_size = -1;
-	while(search != NULL) {
-		int available_size = AVAILABLE_SIZE(search, size);
-		// If block is large enough and we don't get a best fit yet, add it
-		if(available_size > 0 && best_fit == NULL) {
-			info("%s", "best_fit is NULL but found a fit");
-			info("%s: %d", "Available size", available_size);
-			best_fit = search;
-			best_size = available_size;
-		}
-		// If block is better fit than our already fitted block, replace
-		else if(available_size > 0 && available_size < best_size) {
-			info("%s", "best_fit already exists but found a better fit");
-			info("%s: %d", "Available size", available_size);
-			best_fit = search;
-			best_size = available_size;
-		}
-		search = search->next;
-	}
-	// Fit doesn't exist, recursively add a page and try again
-	if(best_fit == NULL)  {
+	sf_free_header* best_fit;
+	// If fit doesn't exist, add a page and try again
+	while(!(best_fit = hasFit(size))) {
 		addNewPage();
 		warn("%s", "Fit not found! Allocating new page!");
-		return searchFreeList(size);
 	}
 	success("%s: %d", "Best fit found of size", best_fit->header.block_size << 4);
 	return best_fit;
@@ -264,4 +294,29 @@ void coalesceBack(sf_header* node) {
 		}
 		start = start->next;
 	}
+}
+
+sf_free_header* hasFit(size_t size) {
+	sf_free_header* search = freelist_head;
+	sf_free_header* best_fit = NULL;
+	int best_size = -1;
+	while(search != NULL) {
+		int available_size = AVAILABLE_SIZE(search, size);
+		info("%s: %d", "Available size", available_size);
+	
+		// If block is large enough and we don't get a best fit yet, add it
+		if(available_size >= 0 && best_fit == NULL) {
+			info("%s", "best_fit is NULL but found a fit");
+			best_fit = search;
+			best_size = available_size;
+		}
+		// If block is better fit than our already fitted block, replace
+		else if(available_size >= 0 && available_size < best_size) {
+			info("%s", "best_fit already exists but found a better fit");
+			best_fit = search;
+			best_size = available_size;
+		}
+		search = search->next;
+	}
+	return best_fit;
 }

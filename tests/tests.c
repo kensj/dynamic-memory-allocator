@@ -37,7 +37,7 @@ Test(sf_memsuite, Malloc_an_Integer, .init = Mem_init, .fini = Mem_fini) {
 }
 
 Test(sf_memsuite, Allocate_three_pages, .init = Mem_init, .fini = Mem_fini) {
-  sf_header* header = Malloc((PAGE_SIZE*3) - SF_HEADER_SIZE - SF_FOOTER_SIZE);
-  header = (sf_header*)((char*)header - SF_HEADER_SIZE);
+  sf_header* header = (Malloc((PAGE_SIZE*3) - SF_FOOTER_SIZE - SF_HEADER_SIZE));
+  header = header - SF_HEADER_SIZE;
   cr_assert((header->block_size<<4) == ((PAGE_SIZE*3)), "Three pages not allocated!!\n");
 }
