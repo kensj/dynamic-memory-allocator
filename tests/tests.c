@@ -29,3 +29,15 @@ Test(sf_memsuite, Head_footer_defines, .init = Mem_init, .fini = Mem_fini) {
   cr_assert(header == header2, "GET_HEAD define incorrect!");
   cr_assert(footer == footer2, "GET_FOOT define incorrect!");
 }
+
+Test(sf_memsuite, Malloc_an_Integer, .init = Mem_init, .fini = Mem_fini) {
+  int *x = Malloc(sizeof(int));
+  *x = 4;
+  cr_assert(*x == 4, "Failed to properly sf_malloc space for an integer!");
+}
+
+Test(sf_memsuite, Allocate_three_pages, .init = Mem_init, .fini = Mem_fini) {
+  sf_header* header = Malloc((PAGE_SIZE*3) - SF_HEADER_SIZE - SF_FOOTER_SIZE);
+  header = (sf_header*)((char*)header - SF_HEADER_SIZE);
+  cr_assert((header->block_size<<4) == ((PAGE_SIZE*3)), "Three pages not allocated!!\n");
+}

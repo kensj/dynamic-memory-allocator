@@ -63,16 +63,63 @@ void *Malloc(size_t size) {
 		warn("%s", "Memory not initialized, calling Mem_init()");
 		Mem_init();
 	}
-	info("%s: %zu", "Requested size", size);
+	int requested_size = size;
 	if(size%16 != 0) {
-		warn("%s", "Not Quad Word Aligned, Aligning...");
+		warn("%s", "Not Word Aligned, Aligning...");
 		size = ALIGN(size);
-		info("%s: %zu", "New Free Node Size", size);
 	}
 
-	searchFreeList(size);
+	// splitting free block
 
-	return NULL;
+	sf_free_header* best_fit_head = searchFreeList(size);
+	sf_footer* best_fit_foot = GET_FOOT(best_fit_head);
+
+	debug("%s", "---------------------------------------");
+	debug("%s", "Malloc Block info");
+	debug("%s", "---------------------------------------");
+	info("%s: %d", "Requested size", requested_size);
+	info("%s: %zu", "Block size", size);
+	debug("%s", "---------------------------------------");
+
+	// change block size in foot and then retreive the head
+	best_fit_foot->block_size = (((best_fit_foot->block_size << 4) - size) >> 4);
+	sf_free_header* new_free_head = (sf_free_header*)GET_HEAD(best_fit_foot);
+	
+	debug("%s", "---------------------------------------");
+	debug("%s", "Free Block info");
+	debug("%s", "---------------------------------------");
+	info("%s: %d", "New Free Block size", best_fit_foot->block_size << 4);
+	debug("%s", "---------------------------------------");
+
+	// Transfer free block info to new block
+	new_free_head->next = best_fit_head->next;
+	new_free_head->prev = best_fit_head->prev;
+	new_free_head->header.block_size = best_fit_foot->block_size;
+	new_free_head->header.alloc = best_fit_foot->alloc;
+	new_free_head->header.splinter = best_fit_foot->splinter;
+
+	// Malloc the new block
+	sf_header* new_block_head = (sf_header*)best_fit_head;
+
+	new_block_head->block_size = size >> 4;
+	new_block_head->requested_size = requested_size >> 4;
+	new_block_head->padding_size = (size - requested_size) >> 4;
+	new_block_head->alloc = true;
+	new_block_head->splinter = false;
+	new_block_head->splinter_size = 0;
+
+
+	sf_footer* new_block_foot = GET_FOOT(new_block_head);
+	new_block_foot->alloc = new_block_head->alloc;
+	new_block_foot->block_size = new_block_head->block_size;
+	new_block_foot->splinter = new_block_head->splinter;
+	
+	// Check if newly freed block is a splinter
+
+	//
+
+	void* payload = new_block_head + SF_HEADER_SIZE;
+	return payload;
 }
 
 void *Realloc(void *ptr, size_t size) {
@@ -117,6 +164,7 @@ sf_free_header* searchFreeList(size_t size) {
 	// Fit doesn't exist, recursively add a page and try again
 	if(best_fit == NULL)  {
 		addNewPage();
+		warn("%s", "Fit not found! Allocating new page!");
 		return searchFreeList(size);
 	}
 	success("%s: %d", "Best fit found of size", best_fit->header.block_size << 4);
