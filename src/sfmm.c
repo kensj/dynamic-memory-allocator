@@ -138,11 +138,15 @@ void* sf_malloc(size_t size) {
 	new_free_foot->alloc = new_free_head->header.alloc;
 	new_free_foot->block_size = new_free_head->header.block_size;
 	// Check if it is a splinter
-	if((best_fit_head->header.block_size << 4) <= (SF_HEADER_SIZE + SF_FOOTER_SIZE)) new_free_head->header.splinter = true;
+	if((new_free_head->header.block_size << 4) <= (SF_HEADER_SIZE + SF_FOOTER_SIZE)) {
+		new_free_head->header.splinter = true;
+		new_free_head->header.splinter_size = new_free_head->header.block_size;
+	}
 	new_free_foot->splinter = new_free_head->header.splinter;
 
 	info("%s: %p", "New Free Block Header", new_free_head);
 	info("%s: %d", "New Free Block Size", (new_free_head->header.block_size << 4));
+	info("%s: %d", "Splinter Size", (new_free_head->header.splinter_size << 4));
 	info("%s: %d", "Is Splinter", new_free_head->header.splinter);
 
 	// Set the allocated block now
@@ -469,6 +473,12 @@ void replaceFreeListPointers(sf_free_header* node_to_replace, sf_free_header* no
 		else if (node_to_insert != NULL) freelist_head = node_to_insert;
 		else freelist_head = NULL;
 	}
+
+	//while(freelist_head->prev != NULL) {
+		//freelist_head = freelist_head->prev;
+	//
+	//}
+	// BUG HERE AND ON LAST TEST CASE
 
 	if(freelist_head != NULL) {
 		info("%s: %p", "Freelist Head", freelist_head);
