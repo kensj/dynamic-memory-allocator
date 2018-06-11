@@ -54,6 +54,8 @@ void sf_mem_init() {
 
 	info("%s: %p", "Freelist Head address", freelist_head);
 	info("%s: %p", "Foot address", freelist_foot);
+	info("%s: %p", "Freelist Head Next", freelist_head->next);
+	info("%s: %p", "Freelist Head Prev", freelist_head->prev);
 	info("%s: %d", "Block Size", freelist_head->header.block_size << 4);
 
 	initialized = true;
@@ -98,7 +100,7 @@ void* sf_malloc(size_t size) {
 		debug("%s", "Free block Size is exact, split not required");
 		
 		// Remove this node from freelist as we will allocate it now
-		replaceFreeListPointers(best_fit_head, NULL);
+		replaceFreeListPointers(freelist_head, best_fit_head, NULL);
 
 		sf_header* new_block_head = (sf_header*)best_fit_head;
 
@@ -168,8 +170,10 @@ void* sf_malloc(size_t size) {
 	success("%s: %p", "Successfully placed, footer location", new_block_foot);
 	info("%s: %p", "Payload location", payload);
 	info("%s: %p", "Freelist Head", freelist_head);
+	info("%s: %p", "Freelist Head Next", freelist_head->next);
+	info("%s: %p", "Freelist Head Prev", freelist_head->prev);
 
-	replaceFreeListPointers((sf_free_header*)new_block_head, new_free_head);
+	replaceFreeListPointers(freelist_head, (sf_free_header*)new_block_head, new_free_head);
 
 	END_BREAK("MALLOC");
 	return payload;
@@ -187,6 +191,7 @@ void sf_free(void* ptr) {
 	info("%s: %p", "Payload Location", ptr);
 	info("%s: %p", "Header Location", header);
 	info("%s: %p", "Footer Location", footer);
+	info("%s: %d", "Block Size", header->block_size << 4);
 
 	header->alloc = false;
 	footer->alloc = false;
@@ -320,6 +325,7 @@ void coalesce(sf_header* node) {
 }
 
 sf_header* coalesceBackward(sf_header* node) {
+	BREAK("COALESCE BACKLWARD");
 	// Get the previous block
 	sf_header* previous_block_head = PREV_BLOCK(node);
 	sf_footer* previous_block_foot = GET_FOOT(previous_block_head);
@@ -330,20 +336,19 @@ sf_header* coalesceBackward(sf_header* node) {
 	// If previous block address is less than the heap start, we do nothing to it
 	if((void*)previous_block_head < heap_start) {
 		warn("%s","Previous block does not exist, no need to coalesce backwards");
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE BACKLWARD");
 		return node;
 	}
 	// Or if it is not a valid block, throw an error. Something is wrong somewhere else
 	else if(!blockValid(previous_block_head)) {
 		error("%s", "Invalid block!");
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE BACKLWARD");
 		return node;
 	}
 	// If the block is not free, we don't have to touch it either
 	else if(previous_block_head->alloc) {
 		debug("%s", "Block is allocated, no coalesce required");
-
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE BACKLWARD");
 		return node;
 	}
 
@@ -362,20 +367,23 @@ sf_header* coalesceBackward(sf_header* node) {
 
 	// Cleanup next & prev pointers of the freelist
 	// We replace every instance of node with new_free_head
-	replaceFreeListPointers((sf_free_header*)node, new_free_head);
+	replaceFreeListPointers(freelist_head, (sf_free_header*)node, new_free_head);
 
 	// Since we coalesced backwards already, we use the new freelist to check the next node
 	node = (sf_header*)new_free_head;
+
+	END_BREAK("COALESCE BACKLWARD");
 	return node;
 }
 
 sf_header* coalesceForward(sf_header* node) {
+	BREAK("COALESCE FORWARD");
 	// Get the next block
 	sf_header* next_block_head = NEXT_BLOCK(node);
 	// If beyond the heap, do nothing
 	if((void*)next_block_head >= heap_end) {
 		warn("%s","Next block does not exist, no need to coalesce forwards!");
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE FORWARD");
 		return node;
 	}
 	sf_footer* next_block_foot = GET_FOOT(next_block_head);
@@ -386,13 +394,13 @@ sf_header* coalesceForward(sf_header* node) {
 	// If the next block is invalid, we have a problem in the program
 	if(!blockValid(next_block_head)) {
 		error("%s", "Invalid block!");
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE FORWARD");
 		return node;
 	}
 	// If the block is not free, we don't have to touch it either
 	else if(next_block_head->alloc) {
 		debug("%s", "Block is allocated, no coalesce required");
-		END_BREAK("COALESCE");
+		END_BREAK("COALESCE FORWARD");
 		return node;
 	}
 	sf_free_header* new_free_head = (sf_free_header*)node;
@@ -406,7 +414,9 @@ sf_header* coalesceForward(sf_header* node) {
 	info("%s: %d", "New Block Size", new_free_head->header.block_size << 4);
 
 	// This time we remove the next block
-	replaceFreeListPointers((sf_free_header*)next_block_head, new_free_head);
+	replaceFreeListPointers(freelist_head, (sf_free_header*)next_block_head, new_free_head);
+
+	END_BREAK("COALESCE FORWARD");
 	return node;
 }
 
@@ -433,52 +443,28 @@ bool blockValid(sf_header* head) {
 	return false;
 }
 
-void replaceFreeListPointers(sf_free_header* node_to_replace, sf_free_header* node_to_insert) {
+// Recursive function
+void replaceFreeListPointers(sf_free_header* start, sf_free_header* node_to_replace, sf_free_header* node_to_insert) {
 	BREAK("CLEANUP POINTERS");
-
 	debug("%s", "Cleaning up pointers...");
 	info("%s: %p", "Node to replace", node_to_replace);
 	info("%s: %p", "Node to insert", node_to_insert);
 
-	sf_free_header* start = freelist_head;
-
-	while(start != NULL) {
-		info("%s %p", "Loop: Node:", start);
-		info("%s %p", "Loop: Next Node:", start->next);
-		// If next address equals the block we just removed, set it to the new one
-		if(start->next != NULL && start->next == (sf_free_header*)node_to_replace) {
-			start->next = node_to_insert;
-			// If next address is the same, we can safely NULL
-			if(start == start->next) {
-				warn("%s", "Next pointer same as current pointer, setting next to null");
-				start->next = NULL;
-			}
+	if(start == NULL) return;
+	else if(start == (sf_free_header*)node_to_replace) {
+		info("%s", "Current pointer is the node to replace...");
+		if(start->prev != NULL) {
+			info("%s", "Previous pointer is not null, replacing previous' next...");
+			start->prev->next = node_to_insert;
 		}
-		// If prev address equals the block we just removed, set it to the new one
-		if(start->prev != NULL && start->prev == (sf_free_header*)node_to_replace) {
-			start->prev = node_to_insert;
-			// If prev address is the same, we can safely NULL
-			// This also means that this address is the new head
-			if(start == start->prev) {
-				info("%s", "Prev pointer same as current pointer, setting prev to null and current to freelist head");
-				start->prev = NULL;
-				freelist_head = start;
-			}
+		else if(start->prev == NULL) {
+			info("%s", "Previous pointer is null, setting current pointer to noode to insert");
+			freelist_head = node_to_insert;
+			freelist_head->next = start->next;
 		}
-		start = start->next;
 	}
-
-	if(freelist_head == node_to_replace) {
-		if(freelist_head->next != NULL) freelist_head = freelist_head->next;
-		else if (node_to_insert != NULL) freelist_head = node_to_insert;
-		else freelist_head = NULL;
-	}
-
-	//while(freelist_head->prev != NULL) {
-		//freelist_head = freelist_head->prev;
-	//
-	//}
-	// BUG HERE AND ON LAST TEST CASE
+	if(start->next == start) start->next = NULL;
+	if(start->next != NULL) replaceFreeListPointers(start->next, node_to_replace, node_to_insert);
 
 	if(freelist_head != NULL) {
 		info("%s: %p", "Freelist Head", freelist_head);

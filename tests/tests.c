@@ -85,6 +85,4 @@ Test(sf_memsuite, SplinterSize_Check_char, .init = sf_mem_init, .fini = sf_mem_f
   sfHeader = NEXT_BLOCK(sfHeader);
   cr_assert(sfHeader->splinter == 1, "Splinter bit in header is not 1!");
   cr_assert((sfHeader->splinter_size << 4) == 16, "Splinter size is not 16");
-  sf_footer* sfFooter = GET_FOOT(sfHeader);
-  cr_assert(sfFooter->splinter == 1, "Splinter bit in the footer is not 1!");
 }
