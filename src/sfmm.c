@@ -72,7 +72,7 @@ void* sf_malloc(size_t size) {
 		warn("%s", "Not Word Aligned, Aligning...");
 		size = (size - size%16 + 16);
 	}
-	
+
 	// splitting free block
 
 	sf_free_header* best_fit_head = searchFreeList(size);	
@@ -184,7 +184,7 @@ void* sf_malloc(size_t size) {
 	return payload;
 }
 
-void *Realloc(void *ptr, size_t size) {
+void* sf_realloc(void *ptr, size_t size) {
 	return NULL;
 }
 
