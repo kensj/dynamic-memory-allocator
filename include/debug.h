@@ -33,12 +33,16 @@
 #define warn(S, ...)    do{fprintf(stderr, KYEL "WARN: %s:%s:%d " KNRM S "\n",    __FILE__, __extension__ __FUNCTION__, __LINE__, __VA_ARGS__  );}while(0)
 #define info(S, ...)    do{fprintf(stderr, KBLU "INFO: %s:%s:%d " KNRM S "\n",    __FILE__, __extension__ __FUNCTION__, __LINE__, __VA_ARGS__  );}while(0)
 #define success(S, ...) do{fprintf(stderr, KGRN "SUCCESS: %s:%s:%d " KNRM S "\n", __FILE__, __extension__ __FUNCTION__, __LINE__, __VA_ARGS__  );}while(0)
+#define BREAK(S)        fprintf(stderr, KBWN "START------" S "-----" KNRM "\n");
+#define END_BREAK(S)    fprintf(stderr, KBWN "END------" S "-----" KNRM "\n");
 #else
 #define debug(S, ...)
 #define error(S, ...)
 #define warn(S, ...)
 #define info(S, ...)
 #define success(S, ...)
+#define BREAK(S)
+#define END_BREAK(S);
 #endif
 
 #endif
