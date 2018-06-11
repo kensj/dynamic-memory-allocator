@@ -9,7 +9,7 @@
 #define GET_HEAD(foot)				((sf_header*)((char*)((sf_footer*)foot) - (((sf_footer*)foot)->block_size << 4) + SF_FOOTER_SIZE))
 #define GET_FOOT(head)				((sf_footer*)((char*)((sf_header*)head) + (((sf_header*)head)->block_size << 4) - SF_FOOTER_SIZE))
 
-Test(sf_memsuite, Init_free_list, .init = Mem_init, .fini = Mem_fini) {
+/*Test(sf_memsuite, Init_free_list, .init = sf_mem_init, .fini = sf_mem_fini) {
   sf_footer* footer = (sf_footer*)((char*)sbrk(0) - SF_FOOTER_SIZE);
   sf_free_header* head = (sf_free_header*)GET_HEAD(footer);
   
@@ -21,7 +21,7 @@ Test(sf_memsuite, Init_free_list, .init = Mem_init, .fini = Mem_fini) {
 }
 
 
-Test(sf_memsuite, Head_footer_defines, .init = Mem_init, .fini = Mem_fini) {
+Test(sf_memsuite, Head_footer_defines, .init = sf_mem_init, .fini = sf_mem_fini) {
   sf_footer* footer = (sf_footer*)((char*)sbrk(0) - SF_FOOTER_SIZE);
   sf_header* header = GET_HEAD(footer);
   sf_footer* footer2 = GET_FOOT(header);
@@ -30,14 +30,25 @@ Test(sf_memsuite, Head_footer_defines, .init = Mem_init, .fini = Mem_fini) {
   cr_assert(footer == footer2, "GET_FOOT define incorrect!");
 }
 
-Test(sf_memsuite, Malloc_an_Integer, .init = Mem_init, .fini = Mem_fini) {
-  int *x = Malloc(sizeof(int));
+Test(sf_memsuite, sf_malloc_an_Integer, .init = sf_mem_init, .fini = sf_mem_fini) {
+  int *x = sf_malloc(sizeof(int));
   *x = 4;
   cr_assert(*x == 4, "Failed to properly sf_malloc space for an integer!");
-}
+}*/
 
-Test(sf_memsuite, Allocate_three_pages, .init = Mem_init, .fini = Mem_fini) {
-  sf_header* header = (Malloc((PAGE_SIZE*3) - SF_FOOTER_SIZE - SF_HEADER_SIZE));
+Test(sf_memsuite, Allocate_three_pages, .init = sf_mem_init, .fini = sf_mem_fini) {
+  sf_header* header = (sf_malloc((PAGE_SIZE*3) - SF_FOOTER_SIZE - SF_HEADER_SIZE));
   header = header - SF_HEADER_SIZE;
   cr_assert((header->block_size<<4) == ((PAGE_SIZE*3)), "Three pages not allocated!!\n");
 }
+
+/*Test(sf_memsuite, sf_free_block_check_header_footer_values, .init = sf_mem_init, .fini = sf_mem_fini) {
+  void *pointer = sf_malloc(sizeof(short));
+  sf_free(pointer);
+  pointer = (char*)pointer - SF_HEADER_SIZE;
+  sf_header *sfHeader = (sf_header *) pointer;
+  cr_assert(sfHeader->alloc == 0, "Alloc bit in header is not 0!\n");
+  sf_footer *sfFooter = (sf_footer *) ((char*)pointer + (sfHeader->block_size << 4) - SF_FOOTER_SIZE);
+  cr_assert(sfFooter->alloc == 0, "Alloc bit in the footer is not 0!\n");
+}
+*/

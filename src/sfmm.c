@@ -9,14 +9,14 @@
 
 #define AVAILABLE_SIZE(node, size)	((node->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size)
 
-#define ALIGN(size) 	(size - size%16 + 16)
+//#define ALIGN(size) 	(size - size%16 + 16)
 
 sf_free_header* freelist_head;
 bool initialized = false;
 void* heap_start;
 void* heap_end;
 
-void Mem_init() {
+void sf_mem_init() {
 	if(initialized) {
 		warn("%s", "Already initialized, doing nothing");
 		return;
@@ -57,28 +57,37 @@ void Mem_init() {
 	initialized = true;
 }
 
-void *Malloc(size_t size) {
+void *sf_malloc(size_t size) {
 	if(size <= 0) {
 		error("%s", "Invalid size");
 		return NULL;
 	}
 	if(!initialized) {
-		warn("%s", "Memory not initialized, calling Mem_init()");
-		Mem_init();
+		warn("%s", "Memory not initialized, calling sf_mem_init()");
+		sf_mem_init();
 	}
 	int requested_size = size;
-	if(size%16 != 0) {
+	size += SF_HEADER_SIZE + SF_FOOTER_SIZE;
+	if(size%(SF_HEADER_SIZE + SF_FOOTER_SIZE) != 0) {
 		warn("%s", "Not Word Aligned, Aligning...");
-		size = ALIGN(size);
+		size = (size - size%16 + 16);
 	}
 
 	// splitting free block
 
-	sf_free_header* best_fit_head = searchFreeList(size);
+	sf_free_header* best_fit_head = searchFreeList(size);	
+	return NULL;
 	sf_footer* best_fit_foot = GET_FOOT(best_fit_head);
 
+	debug("%s", "---------------------------------------");
+	debug("%s", "Malloc Block info");
+	debug("%s", "---------------------------------------");
+	info("%s: %d", "Requested size", requested_size);
+	info("%s: %zu", "Block size", size);
+	debug("%s", "---------------------------------------");	
+
 	// If block size is equal, we don't have to split
-	if(AVAILABLE_SIZE(best_fit_head, size) == 0) {
+	if(AVAILABLE_SIZE(best_fit_head, requested_size) == 0) {
 		debug("%s", "Block Size is equal to adjusted requested size, split not required");
 
 		// ----------------------------
@@ -121,28 +130,28 @@ void *Malloc(size_t size) {
 		new_block_foot->block_size = new_block_head->block_size;
 		new_block_foot->splinter = new_block_head->splinter;
 		
-		void* payload = new_block_head + SF_HEADER_SIZE;
+		void* payload = (char*)new_block_head + SF_HEADER_SIZE;
+		success("%s: %p", "Successfully placed, header location", new_block_head);
+		success("%s: %p", "Successfully placed, payload location", payload);
 		return payload;
 	}
-	// CHECK FOR SPLINTER HERE
-
-	//-------------------------
-
-	debug("%s", "---------------------------------------");
-	debug("%s", "Malloc Block info");
-	debug("%s", "---------------------------------------");
-	info("%s: %d", "Requested size", requested_size);
-	info("%s: %zu", "Block size", size);
-	debug("%s", "---------------------------------------");
 
 	// change block size in foot and then retreive the head
 	best_fit_foot->block_size = (((best_fit_foot->block_size << 4) - size) >> 4);
+
+	// Check if Splinter
+	if((best_fit_foot->block_size << 4) <= (SF_HEADER_SIZE + SF_FOOTER_SIZE)) {
+		best_fit_foot->splinter = true;
+	}
+
 	sf_free_header* new_free_head = (sf_free_header*)GET_HEAD(best_fit_foot);
 	
 	debug("%s", "---------------------------------------");
 	debug("%s", "Free Block info");
 	debug("%s", "---------------------------------------");
 	info("%s: %d", "New Free Block size", best_fit_foot->block_size << 4);
+	info("%s: %p", "New Free Block next", new_free_head->next);
+	info("%s: %p", "New Free Block prev", new_free_head->prev);
 	debug("%s", "---------------------------------------");
 
 	// Transfer free block info to new block
@@ -151,6 +160,7 @@ void *Malloc(size_t size) {
 	new_free_head->header.block_size = best_fit_foot->block_size;
 	new_free_head->header.alloc = best_fit_foot->alloc;
 	new_free_head->header.splinter = best_fit_foot->splinter;
+	new_free_head->header.splinter_size = best_fit_foot->block_size;
 
 	// Malloc the new block
 	sf_header* new_block_head = (sf_header*)best_fit_head;
@@ -167,12 +177,10 @@ void *Malloc(size_t size) {
 	new_block_foot->alloc = new_block_head->alloc;
 	new_block_foot->block_size = new_block_head->block_size;
 	new_block_foot->splinter = new_block_head->splinter;
-	
-	// Check if newly freed block is a splinter
 
-	//
-
-	void* payload = new_block_head + SF_HEADER_SIZE;
+	void* payload = (char*)new_block_head + SF_HEADER_SIZE;
+	success("%s: %p", "Successly placed, header location", new_block_head);
+	success("%s: %p", "Successly placed, payload location", payload);
 	return payload;
 }
 
@@ -180,11 +188,24 @@ void *Realloc(void *ptr, size_t size) {
 	return NULL;
 }
 
-void Free(void* ptr) {
+void sf_free(void* ptr) {
+	sf_header* header = (sf_header*)((char*)ptr - SF_HEADER_SIZE);
+	sf_footer* footer = (sf_footer*)GET_FOOT(header);
+	debug("%s: %p", "Payload Location", ptr);
+	debug("%s: %p", "Header Location", header);
 
+	header->alloc = false;
+	footer->alloc = false;
+
+	// Insert to beginning of freelist
+	freelist_head->prev = (sf_free_header*)header;
+	((sf_free_header*)header)->next = freelist_head;
+	freelist_head = (sf_free_header*)header;
+
+	coalesce(header);
 }
 
-void Mem_fini() {
+void sf_mem_fini() {
 	
 }
 
@@ -238,7 +259,11 @@ void addNewPage() {
 }
 
 bool blockValid(sf_header* head) {
-	debug("%s", "Validating block");
+	debug("%s: %p", "Validating block at address", head);
+	if(head == heap_end) {
+		warn("%s", "Block is heap end, aborting");
+		return false;
+	}
 	sf_footer* foot = GET_FOOT(head);
 	if((head->alloc == foot->alloc) && (head->block_size == foot->block_size) && (head->splinter == foot->splinter)) {
 		success("%s", "Block is valid");
@@ -250,12 +275,10 @@ bool blockValid(sf_header* head) {
 
 void coalesce(sf_header* node) {
 	// Get all free blocks immediately following current memory but make sure we don't go to heap end, we will coalesce all of them
-	sf_header* next_block = NEXT_BLOCK(node);
-	if(next_block != heap_end) {
-		while(blockValid(next_block) && !(next_block->alloc)) {
-			node = next_block;
-			next_block = NEXT_BLOCK(next_block);
-		}
+	// If not beginning of heap, do it again until no more
+	if(blockValid(NEXT_BLOCK(node)) && !(NEXT_BLOCK(node)->alloc)) {
+		debug("%s", "Next block is also free, coalescing first...");
+		node = NEXT_BLOCK(node);
 	}
 
 	// Get the block header and footer that is directly behind in the memory
@@ -285,33 +308,9 @@ void coalesce(sf_header* node) {
 	info("%s: %d", "Footer Block Size: ", new_free_foot->block_size << 4);
 
 	// Cleanup next and prev pointers
-	debug("%s", "Cleaning up pointers...");
-	sf_free_header* start = freelist_head;
-	while(start != NULL) {
-		// If next address equals the block we just removed, set it to the new one
-		if(start->next == (sf_free_header*)node) {
-			start->next = new_free_head;
-			// If next address is the same, we can safely NULL
-			if(start == start->next) {
-				info("%s", "Next pointer same as current pointer, setting next to null");
-				start->next = NULL;
-			}
-		}
-		// If prev address equals the block we just removed, set it to the new one
-		if(start->prev == (sf_free_header*)node) {
-			start->prev = new_free_head;
-			// If next address is the same, we can safely NULL
-			// This also means that this address is the new head
-			if(start == start->prev) {
-				info("%s", "Prev pointer same as current pointer, setting prev to null and current to freelist head");
-				start->prev = NULL;
-				freelist_head = start;
-			}
-		}
-		start = start->next;
-	}
+	replaceNode((sf_free_header*)node, new_free_head);
 	// If not beginning of heap, do it again until no more
-	if(!((void*)new_free_head == heap_start)) {
+	if((void*)new_free_head != heap_start) {
 		coalesce((sf_header*)new_free_head);
 		return;
 	}
@@ -340,4 +339,42 @@ sf_free_header* hasFit(size_t size) {
 		search = search->next;
 	}
 	return best_fit;
+}
+
+void replaceNode(sf_free_header* node_to_replace, sf_free_header* node_to_insert) {
+	debug("%s", "Cleaning up pointers...");
+	sf_free_header* start = freelist_head;
+	debug("%s: %p", "Freelist head", start);
+	debug("%s: %p", "Node to check", node_to_replace);
+	debug("%s: %p", "Freelist head next", start->next);
+	debug("%s: %p", "Freelist head prev", start->prev);
+	if(start->prev ==  start) start->prev = NULL;
+	if(start->next == start) {
+		start->next = NULL;
+		return;
+	}
+	while(start != NULL) {
+		if(start->next == NULL) break;
+		// If next address equals the block we just removed, set it to the new one
+		if(start->next == (sf_free_header*)node_to_replace) {
+			start->next = node_to_insert;
+			// If next address is the same, we can safely NULL
+			if(start == start->next) {
+				info("%s", "Next pointer same as current pointer, setting next to null");
+				start->next = NULL;
+			}
+		}
+		// If prev address equals the block we just removed, set it to the new one
+		if(start->prev == (sf_free_header*)node_to_replace) {
+			start->prev = node_to_insert;
+			// If prev address is the same, we can safely NULL
+			// This also means that this address is the new head
+			if(start == start->prev) {
+				info("%s", "Prev pointer same as current pointer, setting prev to null and current to freelist head");
+				start->prev = NULL;
+				freelist_head = start;
+			}
+		}
+		start = start->next;
+	}
 }

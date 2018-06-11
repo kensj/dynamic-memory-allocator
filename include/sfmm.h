@@ -52,17 +52,18 @@ typedef struct sf_footer sf_footer;
 
 extern sf_free_header *freelist_head;
 
-void Mem_init();
-void Mem_fini();
+void sf_mem_init();
+void sf_mem_fini();
 
-void *Malloc(size_t size);
-void *Realloc(void *ptr, size_t size);
-void Free(void *ptr);
+void *sf_malloc(size_t size);
+void *sf_realloc(void *ptr, size_t size);
+void sf_free(void *ptr);
 
 sf_free_header* searchFreeList(size_t size);
 void addNewPage();
 bool blockValid(sf_header* head);
 void coalesce(sf_header* node);
 sf_free_header* hasFit(size_t size);
+void replaceNode(sf_free_header* node_to_replace, sf_free_header* node_to_insert);
 
 #endif
