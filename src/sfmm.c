@@ -30,7 +30,7 @@ void sf_mem_init() {
 		return;
 	}
 	// The heap_end matches the return pointer if we call sbrk(0)
-	heap_end = (heap_start + PAGE_SIZE);
+	heap_end = ((char*)heap_start + PAGE_SIZE);
 	info("%s: %p", "Heap start", heap_start);
 	info("%s: %p", "Heap end", heap_end);
 
@@ -57,7 +57,7 @@ void sf_mem_init() {
 	initialized = true;
 }
 
-void *sf_malloc(size_t size) {
+void* sf_malloc(size_t size) {
 	if(size <= 0) {
 		error("%s", "Invalid size");
 		return NULL;
@@ -72,7 +72,7 @@ void *sf_malloc(size_t size) {
 		warn("%s", "Not Word Aligned, Aligning...");
 		size = (size - size%16 + 16);
 	}
-
+	
 	// splitting free block
 
 	sf_free_header* best_fit_head = searchFreeList(size);	

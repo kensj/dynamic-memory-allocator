@@ -55,8 +55,8 @@ extern sf_free_header *freelist_head;
 void sf_mem_init();
 void sf_mem_fini();
 
-void *sf_malloc(size_t size);
-void *sf_realloc(void *ptr, size_t size);
+void* sf_malloc(size_t size);
+void* sf_realloc(void *ptr, size_t size);
 void sf_free(void *ptr);
 
 sf_free_header* searchFreeList(size_t size);
