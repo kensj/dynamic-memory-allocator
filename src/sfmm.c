@@ -5,6 +5,7 @@
 #define GET_HEAD(foot)				((sf_header*)((char*)((sf_footer*)foot) - (((sf_footer*)foot)->block_size << 4) + SF_FOOTER_SIZE))
 #define GET_FOOT(head)				((sf_footer*)((char*)((sf_header*)head) + (((sf_header*)head)->block_size << 4) - SF_FOOTER_SIZE))
 #define PREV_BLOCK(node)			((sf_header*)((char*)((sf_footer*)((char*)node - SF_FOOTER_SIZE)) - (((sf_footer*)((char*)node - SF_FOOTER_SIZE))->block_size << 4) + SF_FOOTER_SIZE))
+#define NEXT_BLOCK(node)			((sf_header*)((char*)((sf_header*)node) + (((sf_header*)(char*)node)->block_size << 4)))
 
 #define AVAILABLE_SIZE(node, size)	((node->header.block_size << 4) - SF_HEADER_SIZE - SF_FOOTER_SIZE - size)
 
@@ -12,6 +13,8 @@
 
 sf_free_header* freelist_head;
 bool initialized = false;
+void* heap_start;
+void* heap_end;
 
 void Mem_init() {
 	if(initialized) {
@@ -21,13 +24,13 @@ void Mem_init() {
 	debug("%s","Initializing memory...");
 	// Ask for a new page of memory (default: 4096 bytes)
 
-	void *heap_start = sbrk(PAGE_SIZE);
+	heap_start = sbrk(PAGE_SIZE);
 	if(heap_start == (void *) -1) {
 		error("%s", "Could not initialize memory");
 		return;
 	}
 	// The heap_end matches the return pointer if we call sbrk(0)
-	void *heap_end = (heap_start + PAGE_SIZE);
+	heap_end = (heap_start + PAGE_SIZE);
 	info("%s: %p", "Heap start", heap_start);
 	info("%s: %p", "Heap end", heap_end);
 
@@ -217,6 +220,8 @@ void addNewPage() {
 	new->header.block_size = PAGE_SIZE >> 4;
 
 	sf_footer* new_foot = GET_FOOT(new);
+	heap_end = (char*)new_foot + SF_FOOTER_SIZE;
+	debug("%s: %p", "New heap end", heap_end);
 
 	new_foot->alloc = new->header.alloc;
 	new_foot->splinter = new->header.splinter;
@@ -229,10 +234,12 @@ void addNewPage() {
 	freelist_head = new;
 
 	// Coalesce with memory directly behind new block
-	coalesceBack(new_page_start);
+	coalesce(new_page_start);
 }
 
-bool blockValid(sf_header* head, sf_footer* foot) {
+bool blockValid(sf_header* head) {
+	debug("%s", "Validating block");
+	sf_footer* foot = GET_FOOT(head);
 	if((head->alloc == foot->alloc) && (head->block_size == foot->block_size) && (head->splinter == foot->splinter)) {
 		success("%s", "Block is valid");
 		return true;
@@ -241,14 +248,23 @@ bool blockValid(sf_header* head, sf_footer* foot) {
 	return false;
 }
 
-void coalesceBack(sf_header* node) {
+void coalesce(sf_header* node) {
+	// Get all free blocks immediately following current memory but make sure we don't go to heap end, we will coalesce all of them
+	sf_header* next_block = NEXT_BLOCK(node);
+	if(next_block != heap_end) {
+		while(blockValid(next_block) && !(next_block->alloc)) {
+			node = next_block;
+			next_block = NEXT_BLOCK(next_block);
+		}
+	}
+
 	// Get the block header and footer that is directly behind in the memory
 	sf_header* possible_free_head = PREV_BLOCK(node);
 	sf_footer* possible_free_foot = GET_FOOT(possible_free_head);
 	info("%s: %p", "Possible Free Head", possible_free_head);
 	info("%s: %p", "Possible Free Foot", possible_free_foot);
 	// If block is invalid, something is wrong elsewhere
-	if(!blockValid(possible_free_head, possible_free_foot)) {
+	if(!blockValid(possible_free_head)) {
 		error("%s", "Invalid block, aborting");
 		return;
 	}
@@ -293,6 +309,11 @@ void coalesceBack(sf_header* node) {
 			}
 		}
 		start = start->next;
+	}
+	// If not beginning of heap, do it again until no more
+	if(!((void*)new_free_head == heap_start)) {
+		coalesce((sf_header*)new_free_head);
+		return;
 	}
 }
 
