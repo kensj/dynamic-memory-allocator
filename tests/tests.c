@@ -65,9 +65,6 @@ Test(sf_memsuite, Coalesce_no_coalescing, .init = sf_mem_init, .fini = sf_mem_fi
   int* y = sf_malloc(4);
   memset(y, 0, 0);
   sf_free(x);
-
-  //just simply checking there are more than two things in list
-  //and that they point to each other
   cr_assert(freelist_head->next != NULL);
   cr_assert(freelist_head->next->prev != NULL);
 }
@@ -85,4 +82,34 @@ Test(sf_memsuite, SplinterSize_Check_char, .init = sf_mem_init, .fini = sf_mem_f
   sfHeader = NEXT_BLOCK(sfHeader);
   cr_assert(sfHeader->splinter == 1, "Splinter bit in header is not 1!");
   cr_assert((sfHeader->splinter_size << 4) == 16, "Splinter size is not 16");
+}
+
+Test(sf_memsuite, realloc_same, .init = sf_mem_init, .fini = sf_mem_fini){
+  void* ptr1 = sf_malloc(64);
+  void* ptr2 = sf_realloc(ptr1, 64);
+  sf_header* header1 = (sf_header*)((char*)ptr1 - SF_HEADER_SIZE);
+  sf_header* header2 = (sf_header*)((char*)ptr2 - SF_HEADER_SIZE);
+  int size1 = header1->block_size << 4;
+  int size2 = header2->block_size << 4;
+  cr_assert(ptr1 == ptr2, "Realloced address not the same!");
+  cr_assert(size1 == size2, "Block sizes not the same!");
+}
+
+Test(sf_memsuite, realloc_larger, .init = sf_mem_init, .fini = sf_mem_fini){
+  sf_header* ptr1 = (sf_header*)((char*)sf_malloc(64-16) - SF_HEADER_SIZE);
+  sf_header* ptr2 = (sf_header*)((char*)sf_realloc(ptr1, 128-16) - SF_HEADER_SIZE);
+  cr_assert(ptr1 != ptr2, "Pointers cannot be the same!");
+  cr_assert((ptr2->block_size<<4) == 128, "Realloced block size invalid");
+}
+
+Test(sf_memsuite, realloc_smaller, .init = sf_mem_init, .fini = sf_mem_fini){
+  void* ptr1 = sf_malloc(64-16);
+  // This next malloc is to make sure we don't accidentally coalesce
+  sf_malloc(100);
+  void* ptr2 = sf_realloc(ptr1, 32-16);
+  cr_assert(NEXT_BLOCK(ptr1) == ptr2, "Realloced block locaiton not the same!");
+
+  sf_header* head = (sf_header*)((char*)ptr2 - SF_HEADER_SIZE);
+  sf_free_header* free = (sf_free_header*)NEXT_BLOCK(head);
+  cr_assert((free->header.block_size<<4) == 32, "Free block size invalid!");
 }
