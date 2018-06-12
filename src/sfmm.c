@@ -283,9 +283,16 @@ void sf_free(void* ptr) {
 	
 	sf_header* header = (sf_header*)((char*)ptr - SF_HEADER_SIZE);
 	sf_footer* footer = (sf_footer*)GET_FOOT(header);
+
+	info("%s: %p", "Requested block", header);
 	
 	if(!blockValid(header)) {
 		error("%s", "Invalid block!");
+		END_BREAK("FREE");
+		return;
+	}
+	if(!(header->alloc)) {
+		warn("%s", "Block is already free, doing nothing");
 		END_BREAK("FREE");
 		return;
 	}
@@ -312,7 +319,15 @@ void sf_free(void* ptr) {
 }
 
 void sf_mem_fini() {
-	
+	BREAK("MEMORY DUMP");
+	void* start = heap_start;
+	while(blockValid(start)) {
+		if(start >= heap_end) break;
+		info("%s: %p","Dumping memory at address", start);
+		sf_free((char*)start + SF_HEADER_SIZE);
+		start = NEXT_BLOCK(start);
+	}
+	END_BREAK("MEMORY DUMP");
 }
 
 /* Search the free list
@@ -430,9 +445,9 @@ sf_free_header* coalesceBackward(sf_free_header* node) {
 	BREAK("COALESCE BACKLWARD");
 	// Get the previous block
 	sf_header* previous_block_head = PREV_BLOCK(node);
-	sf_footer* previous_block_foot = GET_FOOT(previous_block_head);
+	//sf_footer* previous_block_foot = GET_FOOT(previous_block_head);
 	info("%s: %p", "Previous block head", previous_block_head);
-	info("%s: %p", "Previous block foot", previous_block_foot);
+	info("%s: %p", "Previous block foot", GET_FOOT(previous_block_head));
 	info("%s: %p", "Heap start", heap_start);
 
 	// If previous block address is less than the heap start, we do nothing to it
