@@ -113,3 +113,10 @@ Test(sf_memsuite, realloc_smaller, .init = sf_mem_init, .fini = sf_mem_fini){
   sf_free_header* free = (sf_free_header*)NEXT_BLOCK(head);
   cr_assert((free->header.block_size<<4) == 32, "Free block size invalid!");
 }
+
+
+Test(sf_memsuite, realloc_values, .init = sf_mem_init, .fini = sf_mem_fini){
+  int* ptr1 = sf_malloc(sizeof(int));
+  long* ptr2 = sf_realloc(ptr1, sizeof(long));
+  cr_assert(*ptr1 == *ptr2, "Value not copied over!");
+}
