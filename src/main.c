@@ -8,7 +8,7 @@
 
 int main(int argc, char *argv[]) {
     sf_mem_init();
-    void* pointer = sf_malloc(2);
-    sf_free(pointer);
+    void* pointer = sf_malloc(64-16);
+    sf_realloc(pointer,128-16);
     return EXIT_SUCCESS;
 }

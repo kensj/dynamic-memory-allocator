@@ -1,6 +1,7 @@
 #include "sfmm.h"
 #include <math.h>
 #include <unistd.h>
+#include <string.h>
 
 #define GET_HEAD(foot)				((sf_header*)((char*)((sf_footer*)foot) - (((sf_footer*)foot)->block_size << 4) + SF_FOOTER_SIZE))
 #define GET_FOOT(head)				((sf_footer*)((char*)((sf_header*)head) + (((sf_header*)head)->block_size << 4) - SF_FOOTER_SIZE))
@@ -180,7 +181,101 @@ void* sf_malloc(size_t size) {
 }
 
 void* sf_realloc(void *ptr, size_t size) {
-	return NULL;
+	BREAK("REALLOC");
+
+	if(size <= 0) {
+		error("%s", "Invalid size");
+
+		END_BREAK("MALLOC");
+		return NULL;
+	}
+	if(!initialized) {
+		warn("%s", "Memory not initialized, calling sf_mem_init()");
+		sf_mem_init();
+	}
+	int requested_size = size;
+	size += SF_HEADER_SIZE + SF_FOOTER_SIZE;
+	if(size%(SF_HEADER_SIZE + SF_FOOTER_SIZE) != 0) {
+		warn("%s", "Not Word Aligned, Aligning...");
+		size = (size - size%16 + 16);
+	}
+
+	// If pointer doesn't exist, just malloc
+	if(ptr == NULL) {
+		warn("%s", "Pointer does not exist, mallocing new block");
+		return sf_malloc(requested_size);
+	}
+
+	sf_header* block_head = (sf_header*)((char*)ptr - SF_HEADER_SIZE);
+
+	// If block is invalid
+	if(!blockValid(block_head)) {
+		error("%s", "Invalid block!");
+		END_BREAK("REALLOC");
+		return NULL;
+	}
+	
+	int available_size = (block_head->block_size << 4) - size;
+	info("%s: %d", "Available Size", available_size);
+
+	// If block size is the same, we don't hae to do anything
+	if(available_size == 0) {
+		success("%s", "No need to reallocate");
+		END_BREAK("REALLOC");
+		return ptr;
+	}
+
+	// Otherwise either find a new block (if not enough space), or split block (less space)
+	if(available_size < 0) {
+		info("%s", "We must find a new block");
+		// Malloc into a new block
+		void* new_payload = sf_malloc(requested_size);
+		// Copy the data
+		memcpy(new_payload, ptr, requested_size);
+		// Then free the old block
+		sf_free(ptr);
+		// Our other functions handle coalescing, realloc is straightforward now :-)
+
+		END_BREAK("REALLOC");
+		return new_payload;
+	}
+	else {
+		info("%s", "We must split this block");
+		// Set the block first
+		block_head->block_size = size >> 4;
+		sf_footer* block_foot = GET_FOOT(block_head);
+		block_foot->alloc = block_head->alloc;
+		block_foot->splinter = block_head->splinter;
+		block_foot->block_size = block_head->block_size;
+
+		// set free list
+		sf_free_header* new_free_head = (sf_free_header*)NEXT_BLOCK(block_head);
+		new_free_head->header.alloc = false;
+		new_free_head->header.block_size = available_size >> 4;
+		// Set the footer
+		sf_footer* new_free_foot = GET_FOOT(new_free_head);
+		new_free_foot->alloc = new_free_head->header.alloc;
+		new_free_foot->block_size = new_free_head->header.block_size;
+		// Check if it is a splinter
+		if((new_free_head->header.block_size << 4) <= (SF_HEADER_SIZE + SF_FOOTER_SIZE)) {
+			new_free_head->header.splinter = true;
+			new_free_head->header.splinter_size = new_free_head->header.block_size;
+		}
+		new_free_foot->splinter = new_free_head->header.splinter;
+
+		info("%s: %p", "New Free Block Header", new_free_head);
+		info("%s: %d", "New Free Block Size", (new_free_head->header.block_size << 4));
+		info("%s: %d", "Splinter Size", (new_free_head->header.splinter_size << 4));
+		info("%s: %d", "Is Splinter", new_free_head->header.splinter);
+		// Insert to beginning of free list
+		freelist_head->prev = new_free_head;
+		new_free_head->next = freelist_head;
+		freelist_head = new_free_head;
+		coalesce(freelist_head);
+
+		END_BREAK("REALLOC");
+		return (void*)((char*)block_head + SF_HEADER_SIZE);
+	}
 }
 
 void sf_free(void* ptr) {
@@ -188,6 +283,13 @@ void sf_free(void* ptr) {
 	
 	sf_header* header = (sf_header*)((char*)ptr - SF_HEADER_SIZE);
 	sf_footer* footer = (sf_footer*)GET_FOOT(header);
+	
+	if(!blockValid(header)) {
+		error("%s", "Invalid block!");
+		END_BREAK("FREE");
+		return;
+	}
+
 	info("%s: %p", "Payload Location", ptr);
 	info("%s: %p", "Header Location", header);
 	info("%s: %p", "Footer Location", footer);
@@ -205,7 +307,7 @@ void sf_free(void* ptr) {
 	info("%s: %p", "Freelist Head Next", freelist_head->next);
 	info("%s: %p", "Freelist Head Prev", freelist_head->prev);
 
-	coalesce((sf_header*)freelist_head);
+	coalesce(freelist_head);
 	END_BREAK("FREE");
 }
 
@@ -314,7 +416,7 @@ int addNewPage() {
 	return 1;
 }
 
-void coalesce(sf_header* node) {
+void coalesce(sf_free_header* node) {
 	BREAK("COALESCE");
 
 	if(node != heap_start) node = coalesceBackward(node);
@@ -324,7 +426,7 @@ void coalesce(sf_header* node) {
 	return;
 }
 
-sf_header* coalesceBackward(sf_header* node) {
+sf_free_header* coalesceBackward(sf_free_header* node) {
 	BREAK("COALESCE BACKLWARD");
 	// Get the previous block
 	sf_header* previous_block_head = PREV_BLOCK(node);
@@ -358,7 +460,7 @@ sf_header* coalesceBackward(sf_header* node) {
 	sf_free_header* new_free_head = (sf_free_header*)previous_block_head;
 	sf_footer* new_free_foot = GET_FOOT(node);
 
-	new_free_head->header.block_size += node->block_size;
+	new_free_head->header.block_size += node->header.block_size;
 	new_free_foot->block_size = new_free_head->header.block_size;
 	
 	info("%s: %p", "New Block Head", new_free_head);
@@ -370,13 +472,13 @@ sf_header* coalesceBackward(sf_header* node) {
 	replaceFreeListPointers(freelist_head, (sf_free_header*)node, new_free_head);
 
 	// Since we coalesced backwards already, we use the new freelist to check the next node
-	node = (sf_header*)new_free_head;
+	node = new_free_head;
 
 	END_BREAK("COALESCE BACKLWARD");
 	return node;
 }
 
-sf_header* coalesceForward(sf_header* node) {
+sf_free_header* coalesceForward(sf_free_header* node) {
 	BREAK("COALESCE FORWARD");
 	// Get the next block
 	sf_header* next_block_head = NEXT_BLOCK(node);

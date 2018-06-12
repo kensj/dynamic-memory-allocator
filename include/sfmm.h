@@ -62,9 +62,9 @@ void sf_free(void *ptr);
 sf_free_header* searchFreeList(size_t size);
 int addNewPage();
 bool blockValid(sf_header* head);
-void coalesce(sf_header* node);
-sf_header* coalesceBackward(sf_header* node);
-sf_header* coalesceForward(sf_header* node);
+void coalesce(sf_free_header* node);
+sf_free_header* coalesceBackward(sf_free_header* node);
+sf_free_header* coalesceForward(sf_free_header* node);
 sf_free_header* hasFit(size_t size);
 void replaceFreeListPointers(sf_free_header* start, sf_free_header* node_to_replace, sf_free_header* node_to_insert);
 
